@@ -1,0 +1,731 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+
+<title>Daily Board</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: date + calendar strip + meter, an "Up next" focus card, then three branded lanes (grid on desktop, swipeable cards on phones), then the inbox of links for Claude. Floating + button adds tasks and links. */
+:root {
+  --bg: oklch(97.5% 0.006 85);
+  --fg: oklch(22% 0.02 60);
+  --muted: oklch(50% 0.02 60);
+  --line: oklch(22% 0.02 60 / 0.12);
+  --soft: oklch(22% 0.02 60 / 0.05);
+  --sheet: #fff;
+  --gold: oklch(74% 0.14 80);
+  --display: "Bricolage Grotesque", "Inter", system-ui, sans-serif;
+  --body: "Inter", system-ui, -apple-system, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: oklch(17% 0.012 60); --fg: oklch(95% 0.01 85); --muted: oklch(70% 0.015 70);
+  --line: oklch(95% 0.01 85 / 0.12); --soft: oklch(95% 0.01 85 / 0.06); --sheet: oklch(22% 0.014 60); color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: oklch(17% 0.012 60); --fg: oklch(95% 0.01 85); --muted: oklch(70% 0.015 70);
+  --line: oklch(95% 0.01 85 / 0.12); --soft: oklch(95% 0.01 85 / 0.06); --sheet: oklch(22% 0.014 60); color-scheme: dark }
+
+/* Lane colours are generated at runtime from THEMES + the board config (see applyConfig). */
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-block: 24px 110px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 22px; }
+.wrap > * { min-width: 0; max-width: 100%; }
+html, body { overflow-x: clip; }
+.nowbar .n { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button { font: inherit; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+header.top { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--display); font-weight: 800; font-size: clamp(36px, 7vw, 80px); line-height: 0.95; letter-spacing: -0.03em; margin: 6px 0 0; text-wrap: balance; }
+h1 .dim { color: var(--muted); font-weight: 500; }
+.headline { color: var(--muted); margin: 8px 0 0; max-width: 62ch; }
+.nav { display: flex; gap: 6px; }
+.nav button { font: 600 13px var(--mono); color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 9px 13px; cursor: pointer; }
+.nav button:disabled { opacity: 0.35; cursor: default; }
+
+.cal { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.cal::-webkit-scrollbar { display: none; }
+.ev { flex: none; display: flex; gap: 8px; align-items: baseline; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: var(--soft); }
+.ev b { font: 600 12px var(--mono); }
+.ev span { font-size: 13px; white-space: nowrap; }
+.ev[data-area] { border-left: 4px solid var(--l-accent); }
+.ev.past { opacity: 0.45; }
+
+.meter { display: grid; gap: 8px; }
+.meter-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.score { font-family: var(--display); font-weight: 800; font-size: 40px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.score small { font-size: 16px; color: var(--muted); font-weight: 500; }
+.stats { display: flex; gap: 16px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.stats b { color: var(--fg); font-weight: 600; }
+.track { height: 14px; border-radius: 999px; background: var(--soft); overflow: hidden; display: flex; }
+.seg { height: 100%; transition: width 0.7s cubic-bezier(.2,.9,.2,1.1); }
+.mood { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+/* Up next */
+.next { background: var(--l-bg); color: var(--l-fg); border: 1px solid var(--l-line); border-radius: 22px; padding: 18px; display: grid; gap: 12px; }
+.next-top { display: flex; justify-content: space-between; gap: 10px; font: 600 11px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--l-muted); }
+.next-title { font-family: var(--display); font-weight: 800; font-size: clamp(22px, 4vw, 30px); line-height: 1.1; letter-spacing: -0.015em; text-wrap: balance; }
+.next-detail { color: var(--l-muted); font-size: 14px; }
+.next-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { border-radius: 999px; padding: 11px 18px; font-weight: 700; font-size: 14px; cursor: pointer; border: 1px solid var(--l-line); background: transparent; color: var(--l-fg); }
+.btn.primary { background: var(--l-accent); border-color: var(--l-accent); color: var(--l-on-accent); }
+
+/* Lanes */
+.chips { display: none; gap: 6px; }
+.chip { flex: 1; font: 600 12px var(--mono); padding: 9px 8px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; white-space: nowrap; }
+.chip b { font-weight: 600; opacity: 0.6; margin-left: 4px; }
+.chip[aria-pressed="true"] { background: var(--l-accent); border-color: var(--l-accent); color: var(--l-on-accent); }
+.lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.lane { background: var(--l-bg); color: var(--l-fg); border-radius: 22px; padding: 18px; display: grid; gap: 12px; min-width: 0; align-content: start;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.06) inset, 0 18px 40px -24px rgb(0 0 0 / 0.45); border: 1px solid var(--l-line); }
+.lane-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.lane-kicker { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--l-muted); }
+.lane-name { font-family: var(--display); font-weight: 800; font-size: 26px; letter-spacing: -0.02em; line-height: 1.05; margin-top: 4px; }
+.lane-name span { color: var(--l-accent); }
+.lane-logo { display: block; width: auto; max-width: 100%; height: 38px; margin-top: 8px; }
+.ring { width: 52px; height: 52px; }
+.ring circle { fill: none; stroke-width: 6; }
+.ring .bgc { stroke: var(--l-line); }
+.ring .fgc { stroke: var(--l-accent); stroke-linecap: round; transition: stroke-dashoffset 0.7s cubic-bezier(.2,.9,.2,1.1); transform: rotate(-90deg); transform-origin: 50% 50%; }
+.ring text { fill: var(--l-fg); font: 600 12px var(--mono); }
+
+.tasks { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.task { background: var(--l-card); border: 1px solid var(--l-line); border-radius: 14px; transition: background 0.3s; }
+.task.done { background: var(--l-card-done); }
+.grip { touch-action: none; cursor: grab; color: var(--l-muted); font: 700 16px/1 var(--mono); padding: 8px 4px 8px 8px; letter-spacing: -2px; user-select: none; -webkit-user-select: none; }
+.task.dragging { box-shadow: 0 14px 30px -10px rgb(0 0 0 / 0.55); transform: scale(1.02); position: relative; z-index: 5; background: var(--l-solid); }
+.task.dragging .grip { cursor: grabbing; color: var(--l-accent); }
+.cal-note { font: 600 11px var(--mono); color: var(--muted); align-self: center; white-space: nowrap; }
+.row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 10px 12px 10px 10px; }
+.check { width: 30px; height: 30px; border-radius: 9px; border: 2px solid var(--l-muted); background: transparent; cursor: pointer; display: grid; place-items: center; padding: 0; color: transparent; flex: none; }
+.check:disabled { cursor: default; }
+.check svg { width: 16px; height: 16px; }
+.task.done .check { background: var(--l-accent); border-color: var(--l-accent); color: var(--l-on-accent); }
+.task.doing .check { border-color: var(--l-accent-2); box-shadow: 0 0 0 4px color-mix(in oklab, var(--l-accent-2) 25%, transparent); }
+.open { all: unset; cursor: pointer; min-width: 0; display: grid; gap: 2px; }
+.t-title { font-weight: 600; font-size: 15px; line-height: 1.3; overflow-wrap: anywhere; }
+.task.done .t-title { text-decoration: line-through; text-decoration-color: var(--l-accent); text-decoration-thickness: 2px; color: var(--l-muted); }
+.chev { color: var(--l-muted); font: 600 14px var(--mono); transition: transform 0.2s; }
+.task.expanded .chev { transform: rotate(90deg); }
+.more { padding: 0 12px 12px 50px; display: grid; gap: 8px; }
+.t-detail { color: var(--l-muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.t-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+.pill { font: 600 10.5px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--l-line); color: var(--l-muted); background: transparent; }
+button.pill { cursor: pointer; color: var(--l-fg); border-color: color-mix(in oklab, var(--l-fg) 30%, transparent); }
+.pill.doing { color: var(--l-accent-2); border-color: color-mix(in oklab, var(--l-accent-2) 50%, transparent); }
+.pill.carried, .pill.phone { color: var(--l-accent); border-color: color-mix(in oklab, var(--l-accent) 45%, transparent); }
+.live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--l-accent-2); margin-right: 6px; vertical-align: 1px; animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--l-accent-2) 60%, transparent); } 50% { box-shadow: 0 0 0 6px transparent; } }
+.nowbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font: 600 12px var(--mono); color: var(--muted); }
+.nowbar .n { display: inline-flex; align-items: center; border-radius: 999px; padding: 6px 12px; background: var(--l-solid); color: var(--l-fg); border: 1px solid var(--l-line); }
+@media (prefers-reduced-motion: reduce) { .live { animation: none; } }
+.mini { display: inline-flex; gap: 5px; margin-top: 2px; }
+.mini .pill { padding: 2px 7px; font-size: 9.5px; }
+.fold { all: unset; cursor: pointer; font: 600 12px var(--mono); color: var(--l-muted); padding: 6px 4px; }
+.empty-lane { color: var(--l-muted); font-size: 13px; padding: 4px 2px; }
+
+/* Inbox */
+.inbox { display: grid; gap: 10px; }
+.inbox h2 { font-family: var(--display); font-weight: 800; font-size: 24px; letter-spacing: -0.02em; margin: 0; }
+.inbox p.sub { margin: 0; color: var(--muted); font-size: 13.5px; }
+.links { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
+.link { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 6px; background: var(--soft); min-width: 0; }
+.link a { color: var(--fg); font-weight: 600; overflow-wrap: anywhere; text-decoration-color: var(--line); }
+.link .meta { display: flex; justify-content: space-between; gap: 8px; font: 600 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.link .note { font-size: 13.5px; }
+.link .reply { font-size: 13.5px; border-left: 3px solid var(--gold); padding-left: 10px; color: var(--fg); }
+.link.seen { opacity: 0.75; }
+.x { all: unset; cursor: pointer; color: var(--muted); font: 600 11px var(--mono); }
+
+/* Add sheet */
+.fab { position: fixed; right: calc(18px + env(safe-area-inset-right, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 30;
+  width: 60px; height: 60px; border-radius: 20px; border: none; background: var(--fg); color: var(--bg); font: 500 32px/1 var(--body); cursor: pointer; box-shadow: 0 12px 30px -10px rgb(0 0 0 / 0.5); }
+.scrim { position: fixed; inset: 0; background: rgb(0 0 0 / 0.45); z-index: 40; }
+.sheet { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); width: min(560px, 100%); z-index: 41; background: var(--sheet); color: var(--fg);
+  border-radius: 24px 24px 0 0; padding: 18px max(18px, env(safe-area-inset-left, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 14px; box-shadow: 0 -20px 50px -20px rgb(0 0 0 / 0.5); }
+.tabs { display: flex; gap: 6px; background: var(--soft); padding: 4px; border-radius: 999px; }
+.tabs button { flex: 1; border: none; background: transparent; color: var(--fg); font: 600 13px var(--mono); padding: 9px; border-radius: 999px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--fg); color: var(--bg); }
+.field { display: grid; gap: 6px; }
+.field label { font: 600 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.field input, .field textarea { width: 100%; font: 16px var(--body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.field textarea { min-height: 70px; resize: vertical; }
+.areas { display: flex; gap: 6px; }
+.areas button { flex: 1; padding: 10px 6px; border-radius: 12px; border: 1px solid var(--line); background: transparent; color: var(--fg); font: 600 12.5px var(--mono); cursor: pointer; }
+.areas button[aria-pressed="true"] { background: var(--l-accent); border-color: var(--l-accent); color: var(--l-on-accent); }
+.sheet-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.sheet .btn { color: var(--fg); border-color: var(--line); }
+.sheet .btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+
+.notice { border: 1px dashed var(--line); border-radius: 16px; padding: 20px; color: var(--muted); }
+.notice strong { color: var(--fg); }
+.toast { position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%) translateY(20px); opacity: 0;
+  background: var(--fg); color: var(--bg); font: 600 13px var(--mono); padding: 10px 16px; border-radius: 999px; transition: 0.25s; pointer-events: none; z-index: 50; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+canvas#fx { position: fixed; inset: 0; pointer-events: none; z-index: 45; width: 100%; height: 100%; }
+
+/* Recap: full-screen "today so far" page, opened from the header. */
+.nav button.recap-btn { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.recap { position: fixed; inset: 0; z-index: 42; background: var(--bg); color: var(--fg); overflow-y: auto; overscroll-behavior: contain;
+  padding: calc(18px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) calc(40px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.recap-in { max-width: 640px; margin: 0 auto; display: grid; gap: 22px; }
+.recap-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.recap-close { font: 600 13px var(--mono); color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 9px 14px; cursor: pointer; }
+.recap-big { font-family: var(--display); font-weight: 800; font-size: clamp(56px, 16vw, 104px); line-height: 0.9; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+.recap-big small { display: block; font-size: clamp(22px, 6vw, 34px); letter-spacing: -0.02em; margin-top: 8px; }
+.recap-sub { font: 600 12px var(--mono); color: var(--muted); letter-spacing: 0.04em; margin-top: 10px; }
+.recap-lane { background: var(--l-bg); color: var(--l-fg); border: 1px solid var(--l-line); border-radius: 20px; padding: 16px; display: grid; gap: 10px; }
+.recap-lane h3 { margin: 0; font: 600 11px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--l-muted); display: flex; justify-content: space-between; }
+.recap-lane ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.recap-lane li { display: grid; grid-template-columns: 22px 46px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.recap-lane .tick { color: var(--l-accent); font-weight: 800; }
+.recap-lane time { font: 600 12px var(--mono); color: var(--l-muted); font-variant-numeric: tabular-nums; }
+.recap-lane .w { font-weight: 600; overflow-wrap: anywhere; }
+.recap-lane .w span { display: block; font-weight: 400; font-size: 13px; color: var(--l-muted); margin-top: 2px; }
+.recap-lane li.wip .tick { color: var(--l-accent-2); }
+.recap-say { border: 1px solid var(--line); border-radius: 20px; padding: 16px; display: grid; gap: 10px; background: var(--soft); }
+.recap-say h3 { margin: 0; font: 600 11px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.recap-say p { margin: 0; font-family: var(--display); font-weight: 500; font-size: 19px; line-height: 1.3; letter-spacing: -0.01em; }
+.recap-say .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.recap-say .btn { color: var(--fg); border-color: var(--line); }
+.recap-say .btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.recap-empty { color: var(--muted); font-size: 15px; }
+
+@media (max-width: 960px) {
+  header.top { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  h1 { font-size: clamp(32px, 9vw, 44px); }
+  .nav button { padding: 7px 12px; font-size: 12px; }
+  .wrap { gap: 16px; padding-block: 14px 110px; }
+  .score { font-size: 32px; }
+  .chips { display: flex; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 12; background: var(--bg); padding-block: 8px; }
+  .lanes { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 12px; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .lanes::-webkit-scrollbar { display: none; }
+  .lane { flex: 0 0 88%; scroll-snap-align: center; padding: 16px; border-radius: 20px; }
+  .lane:only-child { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .seg, .ring .fgc, .task, .toast, .chev { transition: none; } }
+</style>
+<style id="lane-grid"></style>
+
+<canvas id="fx" aria-hidden="true"></canvas>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1 id="date">Today</h1>
+      <p class="headline" id="headline" hidden></p>
+    </div>
+    <div class="nav" role="group" aria-label="Change day">
+      <button id="recap-open" class="recap-btn" type="button">Recap</button>
+      <button id="prev" type="button">‹ Prev</button>
+      <button id="today" type="button">Today</button>
+      <button id="next" type="button">Next ›</button>
+    </div>
+  </header>
+  <div class="cal" id="cal" aria-label="Today's calendar"></div>
+  <section class="meter" aria-label="Day progress">
+    <div class="meter-row">
+      <div class="score" id="score">0<small>% of the day</small></div>
+      <div class="stats" id="stats"></div>
+    </div>
+    <div class="track" id="track" role="img" aria-label="Progress by area"></div>
+    <div class="mood" id="mood"></div>
+  </section>
+  <div class="nowbar" id="nowbar" hidden></div>
+  <div id="upnext"></div>
+  <div class="chips" id="chips" role="group" aria-label="Jump to lane"></div>
+  <div id="body"></div>
+  <section class="inbox" aria-labelledby="inbox-h">
+    <h2 id="inbox-h">For Claude to look at</h2>
+    <p class="sub">Links you drop here with the + button. Claude looks at them at the next kickoff and leaves a note.</p>
+    <div class="links" id="links"></div>
+  </section>
+</div>
+<button class="fab" id="fab" type="button" aria-label="Add a task or a link">+</button>
+<div id="sheetRoot"></div>
+<div id="recapRoot"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ---------- Config: written by Claude during setup (db doc config/board, or BOARD_DATA.config in local mode) ---------- */
+const THEMES = {
+  forest: { bg: "radial-gradient(120% 80% at 0% 0%, oklch(38% 0.11 160 / 0.55), transparent 60%), linear-gradient(160deg, #0B1512, #08100D)", solid: "#0B1512", fg: "#EAF7F0", muted: "rgb(234 247 240 / 0.62)", line: "rgb(234 247 240 / 0.1)", accent: "#00C96B", accent2: "#6CF2B0", onAccent: "#06120C", card: "rgb(255 255 255 / 0.05)", cardDone: "rgb(0 201 107 / 0.1)", seg: ["#00A659", "#00C96B"], confetti: ["#00C96B", "#6CF2B0", "#EAF7F0"] },
+  paper:  { bg: "radial-gradient(120% 70% at 100% 0%, oklch(86% 0.08 80 / 0.55), transparent 55%), #FBF7EF", solid: "#FBF7EF", fg: "#1E1712", muted: "rgb(30 23 18 / 0.6)", line: "rgb(30 23 18 / 0.1)", accent: "#C4302B", accent2: "#B7842A", onAccent: "#fff", card: "rgb(255 255 255 / 0.7)", cardDone: "rgb(217 164 65 / 0.16)", seg: ["#C4302B", "#E0573F"], confetti: ["#C4302B", "#D9A441", "#F3E3C0"] },
+  ink:    { bg: "radial-gradient(100% 70% at 50% 0%, oklch(40% 0.06 80 / 0.5), transparent 60%), #17130F", solid: "#17130F", fg: "#F6EEDF", muted: "rgb(246 238 223 / 0.6)", line: "rgb(246 238 223 / 0.1)", accent: "#D9A441", accent2: "#F0CF85", onAccent: "#17130F", card: "rgb(255 255 255 / 0.05)", cardDone: "rgb(217 164 65 / 0.14)", seg: ["#C9932E", "#E9C36A"], confetti: ["#D9A441", "#F0CF85", "#F6EEDF"] },
+  ocean:  { bg: "radial-gradient(120% 80% at 0% 0%, oklch(45% 0.12 250 / 0.55), transparent 60%), linear-gradient(160deg, #0B1220, #070C16)", solid: "#0B1220", fg: "#E8F0FF", muted: "rgb(232 240 255 / 0.62)", line: "rgb(232 240 255 / 0.1)", accent: "#4C8DFF", accent2: "#9CC1FF", onAccent: "#06101F", card: "rgb(255 255 255 / 0.05)", cardDone: "rgb(76 141 255 / 0.12)", seg: ["#2F6FE0", "#4C8DFF"], confetti: ["#4C8DFF", "#9CC1FF", "#E8F0FF"] },
+  plum:   { bg: "radial-gradient(120% 80% at 100% 0%, oklch(45% 0.13 320 / 0.5), transparent 60%), linear-gradient(160deg, #1A0E1A, #110911)", solid: "#1A0E1A", fg: "#F8EAF6", muted: "rgb(248 234 246 / 0.62)", line: "rgb(248 234 246 / 0.1)", accent: "#D45DBF", accent2: "#F0A6E2", onAccent: "#1A0E1A", card: "rgb(255 255 255 / 0.05)", cardDone: "rgb(212 93 191 / 0.13)", seg: ["#B4479F", "#D45DBF"], confetti: ["#D45DBF", "#F0A6E2", "#F8EAF6"] },
+  sky:    { bg: "radial-gradient(120% 70% at 0% 0%, oklch(90% 0.06 230 / 0.6), transparent 55%), #F3F8FC", solid: "#F3F8FC", fg: "#0F1B26", muted: "rgb(15 27 38 / 0.6)", line: "rgb(15 27 38 / 0.1)", accent: "#1F7AE0", accent2: "#5AA3F0", onAccent: "#fff", card: "rgb(255 255 255 / 0.75)", cardDone: "rgb(31 122 224 / 0.12)", seg: ["#1F7AE0", "#5AA3F0"], confetti: ["#1F7AE0", "#5AA3F0", "#CFE4FA"] },
+};
+const DEFAULT_CONFIG = {
+  title: "Daily Board",
+  timezone: "",                       // IANA name, e.g. "Europe/London". Empty = the device's own zone.
+  lanes: [
+    { key: "work", label: "Work", kicker: "The business", theme: "forest" },
+    { key: "personal", label: "Personal", kicker: "Life admin", theme: "ink" },
+  ],
+  calendar: false,                    // true = read today's Google Calendar live (needs the mcp capability)
+  calendarColors: {},                 // Google Calendar colorId -> lane key, e.g. { "7": "work" }
+  inbox: true,                        // the "links for Claude" section
+};
+let CONFIG = DEFAULT_CONFIG, AREAS = [], COLORS = {};
+function applyConfig(cfg) {
+  CONFIG = { ...DEFAULT_CONFIG, ...(cfg || {}) };
+  const lanes = Array.isArray(CONFIG.lanes) && CONFIG.lanes.length ? CONFIG.lanes : DEFAULT_CONFIG.lanes;
+  AREAS = lanes.filter(l => l && /^[a-z0-9_-]{1,30}$/i.test(l.key)).slice(0, 5).map(l => ({ key: l.key, label: String(l.label || l.key), kicker: String(l.kicker || ""),
+    theme: THEMES[l.theme] ? l.theme : "forest", name: `${esc(l.label || l.key)}<span>.</span>` }));
+  COLORS = Object.fromEntries(AREAS.map(a => [a.key, THEMES[a.theme].confetti]));
+  const css = AREAS.map(a => { const t = THEMES[a.theme]; return `[data-area="${a.key}"]{--l-bg:${t.bg};--l-solid:${t.solid};--l-fg:${t.fg};--l-muted:${t.muted};--l-line:${t.line};--l-accent:${t.accent};--l-accent-2:${t.accent2};--l-on-accent:${t.onAccent};--l-card:${t.card};--l-card-done:${t.cardDone}}.seg.${a.key}{background:linear-gradient(90deg,${t.seg[0]},${t.seg[1]})}`; }).join("\n");
+  let tag = document.getElementById("lane-css"); if (!tag) { tag = document.createElement("style"); tag.id = "lane-css"; document.head.appendChild(tag); }
+  tag.textContent = css;
+  document.title = CONFIG.title || "Daily Board";
+  if (!AREAS.some(a => a.key === state.activeLane)) state.activeLane = AREAS[0].key;
+  const inbox = document.querySelector("section.inbox"); if (inbox) inbox.hidden = CONFIG.inbox === false;
+  const lanesCss = document.getElementById("lane-grid"); if (lanesCss) lanesCss.textContent = `@media (min-width: 961px) { .lanes { grid-template-columns: repeat(${AREAS.length}, minmax(0, 1fr)); } }`;
+}
+const MOODS = [[0, "Fresh day. Start with the one that scares you most."], [1, "First one down. Momentum is real."], [25, "Warming up. Phone face down."], [50, "Half the board cleared. This is where most people stop."], [75, "In the zone. Finish strong."], [100, "Day cleared. Go touch some grass."]];
+const $ = (id) => document.getElementById(id);
+const state = { days: new Map(), links: [], current: null, canWrite: false, loaded: false, expanded: new Set(), showDone: new Set(), skip: new Set(), activeLane: "", sheet: null };
+const isPhone = () => matchMedia("(max-width: 960px)").matches;
+
+/* Recap: everything ticked on the shown day, grouped by lane, with times and lines to say on camera.
+   Optional fields Claude may write: task.win (short camera-friendly version of the title), day.recap.lines (array of sentences). */
+let recapOpen = false;
+const doneTime = (t) => t.doneAt ? hhmm(t.doneAt) : "";
+function recapData() {
+  const iso = state.current || parisToday(); const day = state.days.get(iso);
+  const tasks = Array.isArray(day?.tasks) ? day.tasks : [];
+  const done = tasks.filter(t => t.status === "done").sort((a, b) => String(a.doneAt || "").localeCompare(String(b.doneAt || "")));
+  const wip = tasks.filter(t => t.status === "doing");
+  const times = done.map(t => t.doneAt).filter(Boolean).sort();
+  const lanes = AREAS.filter(a => done.some(t => laneOf(t) === a.key));
+  return { iso, day, done, wip, lanes, first: times[0] ? hhmm(times[0]) : "", last: times.length ? hhmm(times[times.length - 1]) : "" };
+}
+function sayLines(r) {
+  const custom = Array.isArray(r.day?.recap?.lines) ? r.day.recap.lines.filter(x => typeof x === "string" && x.trim()) : [];
+  if (custom.length) return custom;
+  if (!r.done.length) return [];
+  const label = (t) => String(t.win || t.title).replace(/\.$/, "");
+  const work = r.done.filter(t => t.area !== "personal");
+  const top = (work.length ? work : r.done).slice(-3).reverse();
+  const lines = [`${r.iso === parisToday() ? "Today" : "That day"} I got ${r.done.length} thing${r.done.length === 1 ? "" : "s"} done across ${r.lanes.length} part${r.lanes.length === 1 ? "" : "s"} of my life.`];
+  for (const t of top) lines.push(label(t) + ".");
+  if (r.wip.length) lines.push(`Still on it: ${label(r.wip[0])}.`);
+  return lines;
+}
+function recapText(r) {
+  const out = [`${r.done.length} done${r.first ? ` (${r.first} to ${r.last})` : ""}`];
+  for (const a of r.lanes) { out.push("", a.label.toUpperCase()); for (const t of r.done.filter(x => laneOf(x) === a.key)) out.push(`- ${doneTime(t) ? doneTime(t) + " " : ""}${t.win || t.title}`); }
+  const say = sayLines(r); if (say.length) out.push("", "SAY ON CAMERA", ...say);
+  return out.join("\n");
+}
+function drawRecap() {
+  const root = $("recapRoot");
+  if (!recapOpen) { root.innerHTML = ""; document.body.style.overflow = ""; return; }
+  document.body.style.overflow = "hidden";
+  const r = recapData(); const isToday = r.iso === parisToday();
+  const d = new Date(r.iso + "T12:00:00");
+  const head = isToday ? "Today so far" : esc(d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }));
+  const say = sayLines(r);
+  const hadFocus = root.contains(document.activeElement);
+  root.innerHTML = `<div class="recap" role="dialog" aria-modal="true" aria-label="Recap"><div class="recap-in">
+    <div class="recap-top"><span class="eyebrow">${head}</span><button class="recap-close" type="button" data-recap-close>Close</button></div>
+    ${r.done.length ? `<div>
+      <div class="recap-big">${r.done.length}<small>thing${r.done.length === 1 ? "" : "s"} done${isToday ? " today" : ""}</small></div>
+      <div class="recap-sub">${r.first ? `${r.first} → ${r.last} · ` : ""}${r.lanes.length} lane${r.lanes.length === 1 ? "" : "s"}${r.wip.length ? ` · ${r.wip.length} in progress` : ""}</div>
+    </div>
+    ${AREAS.map(a => {
+      const mine = r.done.filter(t => laneOf(t) === a.key); const wip = r.wip.filter(t => laneOf(t) === a.key);
+      if (!mine.length && !wip.length) return "";
+      return `<section class="recap-lane" data-area="${a.key}"><h3><span>${esc(a.label)}</span><span>${mine.length}</span></h3><ol>
+        ${mine.map(t => `<li><span class="tick" aria-hidden="true">✓</span><time>${esc(doneTime(t))}</time><span class="w">${esc(t.win || t.title)}</span></li>`).join("")}
+        ${wip.map(t => `<li class="wip"><span class="tick" aria-hidden="true">●</span><time>now</time><span class="w">${esc(t.title)}</span></li>`).join("")}
+      </ol></section>`;
+    }).join("")}
+    ${say.length ? `<section class="recap-say"><h3>Say on camera</h3>${say.map(l => `<p>${esc(l)}</p>`).join("")}
+      <div class="actions"><button class="btn primary" type="button" data-recap-copy>Copy recap</button></div></section>` : ""}`
+    : `<div class="recap-empty">Nothing ticked yet${isToday ? " today" : ""}. Tick a task and it shows up here.</div>`}
+  </div></div>`;
+  if (!hadFocus) root.querySelector(".recap-close")?.focus();
+}
+async function copyRecap() {
+  const text = recapText(recapData());
+  try { await navigator.clipboard.writeText(text); toast("Recap copied"); return; } catch {}
+  try { const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); const ok = document.execCommand("copy"); ta.remove(); toast(ok ? "Recap copied" : "Couldn't copy. Long-press the text instead."); }
+  catch { toast("Couldn't copy. Long-press the text instead."); }
+}
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+const TZ = () => (CONFIG.timezone || undefined);
+const parisToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ(), year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+const parisNow = () => new Intl.DateTimeFormat("en-GB", { timeZone: TZ(), hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
+const sortedDates = () => [...state.days.keys()].sort();
+const areaIdx = (k) => { const i = AREAS.findIndex(a => a.key === k); return i < 0 ? AREAS.length - 1 : i; };
+const laneOf = (t) => AREAS.some(a => a.key === t.area) ? t.area : AREAS[AREAS.length - 1].key;
+const safeUrl = (u) => /^https?:\/\//i.test(u || "") ? u : "";
+
+function dayStats(day) {
+  const tasks = (day && Array.isArray(day.tasks)) ? day.tasks : [];
+  const by = {}; for (const a of AREAS) by[a.key] = { total: 0, done: 0 };
+  for (const t of tasks) { const b = by[laneOf(t)]; b.total++; if (t.status === "done") b.done++; }
+  const total = tasks.length, done = tasks.filter(t => t.status === "done").length;
+  return { tasks, by, total, done, pct: total ? Math.round(done / total * 100) : 0 };
+}
+function streak() {
+  let n = 0; const today = parisToday();
+  for (const d of sortedDates().filter(d => d <= today).reverse()) { const s = dayStats(state.days.get(d)); if (s.total && s.done === s.total) n++; else if (d !== today) break; }
+  return n;
+}
+function upNext(tasks) {
+  const open = tasks.map((t, idx) => ({ t, idx })).filter(x => x.t.status !== "done" && !state.skip.has(x.t.id));
+  open.sort((a, b) => (b.t.status === "doing") - (a.t.status === "doing") || (a.t.rank ?? 99) - (b.t.rank ?? 99) || areaIdx(a.t.area) - areaIdx(b.t.area) || (a.t.order ?? 0) - (b.t.order ?? 0));
+  return open[0];
+}
+
+const CHECK = '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function ring(done, total) {
+  const r = 21, c = 2 * Math.PI * r, f = total ? done / total : 0;
+  return `<svg class="ring" viewBox="0 0 52 52" role="img" aria-label="${done} of ${total} done"><circle class="bgc" cx="26" cy="26" r="${r}"/><circle class="fgc" cx="26" cy="26" r="${r}" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - f)}"/><text x="26" y="30.5" text-anchor="middle">${done}/${total}</text></svg>`;
+}
+function taskRow(t, idx) {
+  const open = state.expanded.has(t.id);
+  const cls = `task ${t.status === "done" ? "done" : ""} ${t.status === "doing" ? "doing" : ""} ${open ? "expanded" : ""}`;
+  const mini = [t.status === "doing" ? `<span class="pill doing">On it</span>` : "", t.tag ? `<span class="pill">${esc(t.tag)}</span>` : "", t.carried ? `<span class="pill carried">Carried</span>` : "", t.from === "phone" ? `<span class="pill phone">From phone</span>` : ""].join("");
+  return `<li class="${cls}" data-comment-target data-task="${esc(t.id)}">
+    <div class="row">
+      <button class="check" type="button" data-i="${idx}" ${state.canWrite ? "" : "disabled"} aria-pressed="${t.status === "done"}" aria-label="Mark ${esc(t.title)} ${t.status === "done" ? "not done" : "done"}">${CHECK}</button>
+      <button class="open" type="button" data-open="${esc(t.id)}" aria-expanded="${open}"><span class="t-title">${t.status === "doing" ? '<span class="live" aria-hidden="true"></span>' : ""}${esc(t.title)}</span>${mini.trim() ? `<span class="mini">${mini}</span>` : ""}</button>
+      <span class="chev" aria-hidden="true">›</span>
+      ${state.canWrite && t.status !== "done" ? `<span class="grip" data-grip aria-hidden="true" title="Drag to reorder">⋮⋮</span>` : "<span></span>"}
+    </div>
+    ${open ? `<div class="more">
+      ${t.detail ? `<div class="t-detail">${esc(t.detail)}</div>` : ""}
+      <div class="t-meta">
+        ${state.canWrite && t.status !== "done" ? `<button class="pill" type="button" data-doing="${idx}">${t.status === "doing" ? "Stop" : "Start"}</button>` : ""}
+        ${commentsNs && t.status !== "done" ? `<button class="pill" type="button" data-ask="${idx}">Tell Claude</button>` : ""}
+        ${state.canWrite && t.status !== "done" ? `<button class="pill" type="button" data-move="${idx}" data-dir="-1" aria-label="Move up">↑ Up</button><button class="pill" type="button" data-move="${idx}" data-dir="1" aria-label="Move down">↓ Down</button>` : ""}
+        ${state.canWrite && t.from === "phone" ? `<button class="pill" type="button" data-del="${idx}">Delete</button>` : ""}
+      </div>
+    </div>` : ""}
+  </li>`;
+}
+
+function render() {
+  if (drag) return;
+  const lanesEl = document.querySelector(".lanes"); const keepScroll = lanesEl ? lanesEl.scrollLeft : 0;
+  const iso = state.current || parisToday(); const day = state.days.get(iso); const today = parisToday(); const isToday = iso === today;
+  const d = new Date(iso + "T12:00:00");
+  $("date").innerHTML = `${esc(d.toLocaleDateString("en-GB", { weekday: "long" }))} <span class="dim">${esc(d.toLocaleDateString("en-GB", { day: "numeric", month: "long" }))}</span>`;
+  $("headline").textContent = state.loaded && !day ? "Nothing planned for this day yet." : "";
+  $("headline").hidden = !$("headline").textContent;
+  $("prev").disabled = !sortedDates().some(x => x < iso); $("next").disabled = !sortedDates().some(x => x > iso); $("today").disabled = isToday;
+
+  const now = parisNow();
+  const live = liveCal.date === iso ? liveCal.events : null;
+  const cal = live || (Array.isArray(day?.calendar) ? day.calendar : []);
+  $("cal").hidden = !cal.length && !liveCal.note;
+  $("cal").innerHTML = (liveCal.note && liveCal.date === iso ? (liveCal.ask ? `<button class="ev" type="button" id="cal-allow"><b>Show live meetings</b><span>Tap to allow Google Calendar</span></button>` : `<span class="cal-note">${esc(liveCal.note)}</span>`) : "") + cal.map(e => `<div class="ev ${isToday && e.end && e.end < now ? "past" : ""}" ${e.area ? `data-area="${esc(e.area)}"` : ""}><b>${esc(e.t)}</b><span>${esc(e.title)}</span></div>`).join("");
+
+  const s = dayStats(day);
+  $("score").innerHTML = `${s.pct}<small>% of the day</small>`;
+  const allTime = [...state.days.values()].reduce((n, x) => n + dayStats(x).done, 0);
+  $("stats").innerHTML = `<span><b>${s.done}</b> of ${s.total} done</span><span><b>${streak()}</b> day streak</span><span><b>${allTime}</b> shipped all time</span>`;
+  $("track").innerHTML = AREAS.map(a => `<div class="seg ${a.key}" style="width:${s.total ? s.by[a.key].done / s.total * 100 : 0}%"></div>`).join("");
+  let mood = MOODS[0][1]; for (const [min, text] of MOODS) if (min === 1 ? s.done >= 1 : s.pct >= min) mood = text;
+  $("mood").textContent = s.total ? mood : "";
+
+  const doingNow = s.tasks.filter(t => t.status === "doing");
+  $("nowbar").hidden = !doingNow.length;
+  $("nowbar").innerHTML = doingNow.length ? `<span>Working on now</span>${doingNow.map(t => `<span class="n" data-area="${esc(laneOf(t))}"><span class="live" aria-hidden="true"></span>${esc(t.title)}</span>`).join("")}` : "";
+  const nx = day ? upNext(s.tasks) : null;
+  $("upnext").innerHTML = nx ? `<section class="next" data-area="${esc(laneOf(nx.t))}" aria-label="Up next">
+    <div class="next-top"><span>${nx.t.status === "doing" ? "On it now" : "Up next"}</span><span>${esc(AREAS[areaIdx(nx.t.area)].label)}</span></div>
+    <div class="next-title">${esc(nx.t.title)}</div>
+    ${nx.t.detail ? `<div class="next-detail">${esc(nx.t.detail)}</div>` : ""}
+    <div class="next-actions">
+      ${state.canWrite ? `<button class="btn primary" type="button" data-i="${nx.idx}" data-from-next>Done</button>` : ""}
+      ${state.canWrite && nx.t.status !== "doing" ? `<button class="btn" type="button" data-doing="${nx.idx}">Start</button>` : ""}
+      <button class="btn" type="button" data-skip="${esc(nx.t.id)}">Show another</button>
+    </div></section>` : "";
+
+  $("chips").innerHTML = AREAS.map(a => `<button class="chip" type="button" data-area="${a.key}" data-lane="${a.key}" aria-pressed="${state.activeLane === a.key}">${a.label}<b>${s.by[a.key].total - s.by[a.key].done}</b></button>`).join("");
+  $("chips").hidden = !day;
+
+  if (!day) {
+    $("body").innerHTML = `<div class="notice">${state.loaded ? `<strong>No list for this day.</strong> Tell Claude your list in the morning, or add a task with the + button.` : `<strong>Loading your board.</strong>`}</div>`;
+  } else {
+    $("body").innerHTML = `<div class="lanes">${AREAS.map(a => {
+      const mine = s.tasks.map((t, idx) => ({ t, idx })).filter(x => laneOf(x.t) === a.key).sort((x, y) => (x.t.order ?? 0) - (y.t.order ?? 0));
+      const open = mine.filter(x => x.t.status !== "done"), done = mine.filter(x => x.t.status === "done");
+      const showDone = state.showDone.has(a.key);
+      return `<section class="lane" data-area="${a.key}" id="lane-${a.key}" aria-label="${a.label}">
+        <div class="lane-head"><div><div class="lane-kicker">${a.kicker}</div><div class="lane-name">${a.name}</div></div>${ring(s.by[a.key].done, s.by[a.key].total)}</div>
+        ${open.length ? `<ul class="tasks">${open.map(x => taskRow(x.t, x.idx)).join("")}</ul>` : `<div class="empty-lane">${done.length ? "All clear here." : "Nothing here today."}</div>`}
+        ${done.length ? `<button class="fold" type="button" data-fold="${a.key}">${showDone ? "Hide" : "Show"} ${done.length} done ✓</button>` : ""}
+        ${done.length && showDone ? `<ul class="tasks">${done.map(x => taskRow(x.t, x.idx)).join("")}</ul>` : ""}
+      </section>`;
+    }).join("")}</div>`;
+    const ln = document.querySelector(".lanes"); if (ln) { ln.scrollLeft = keepScroll; observeLanes(ln); }
+  }
+  renderLinks();
+  if (recapOpen) drawRecap();
+}
+
+function renderLinks() {
+  const items = state.links;
+  $("links").innerHTML = items.length ? items.map(l => {
+    const u = safeUrl(l.url); const host = u ? new URL(u).hostname.replace(/^www\./, "") : "note";
+    const kind = /instagram/.test(host) ? "Instagram" : /tiktok/.test(host) ? "TikTok" : /youtu/.test(host) ? "YouTube" : host;
+    return `<div class="link ${l.status === "seen" ? "seen" : ""}">
+      <div class="meta"><span>${esc(kind)} · ${l.status === "seen" ? "Claude watched it" : "Waiting for Claude"}</span>${state.canWrite ? `<button class="x" type="button" data-unlink="${esc(l.id)}">Remove</button>` : ""}</div>
+      ${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/(www\.)?/, "").slice(0, 70))}</a>` : ""}
+      ${l.note ? `<div class="note">${esc(l.note)}</div>` : ""}
+      ${l.reply ? `<div class="reply">${esc(l.reply)}</div>` : ""}
+    </div>`;
+  }).join("") : `<div class="notice">Nothing waiting. Found a reel worth stealing from? Tap + and paste the link.</div>`;
+}
+
+let laneObs = null;
+function observeLanes(root) {
+  if (laneObs) laneObs.disconnect();
+  if (!isPhone() || !("IntersectionObserver" in window)) return;
+  laneObs = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) {
+      const k = e.target.dataset.area; if (k && k !== state.activeLane) { state.activeLane = k; document.querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", c.dataset.lane === k)); }
+    }
+  }, { root, threshold: 0.6 });
+  root.querySelectorAll(".lane").forEach(l => laneObs.observe(l));
+}
+
+/* Sheet: add a task or a link */
+function openSheet(tab) {
+  state.sheet = { tab: tab || "task", area: state.activeLane || AREAS[0].key };
+  drawSheet();
+  setTimeout(() => { const f = document.querySelector(".sheet input"); if (f) f.focus(); }, 50);
+}
+function drawSheet() {
+  const sh = state.sheet;
+  if (!sh) { $("sheetRoot").innerHTML = ""; return; }
+  const draft = { title: $("f-title")?.value ?? "", note: $("f-note")?.value ?? "", url: $("f-url")?.value ?? "", lnote: $("f-lnote")?.value ?? "" };
+  $("sheetRoot").innerHTML = `<div class="scrim" data-close></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Add to the board">
+    <div class="tabs" role="tablist"><button type="button" role="tab" data-tab="task" aria-selected="${sh.tab === "task"}">Task</button><button type="button" role="tab" data-tab="link" aria-selected="${sh.tab === "link"}">Link for Claude</button></div>
+    ${sh.tab === "task" ? `
+      <div class="field"><label for="f-title">What needs doing</label><input id="f-title" maxlength="140" placeholder="e.g. Send Sam the proposal" value="${esc(draft.title)}"></div>
+      <div class="field"><label>Lane</label><div class="areas">${AREAS.map(a => `<button type="button" data-area="${a.key}" data-pick="${a.key}" aria-pressed="${sh.area === a.key}">${a.label}</button>`).join("")}</div></div>
+      <div class="field"><label for="f-note">Note for Claude (optional)</label><textarea id="f-note" maxlength="600" placeholder="Context, a link, what done looks like">${esc(draft.note)}</textarea></div>
+    ` : `
+      <div class="field"><label for="f-url">Link</label><input id="f-url" type="url" inputmode="url" placeholder="https://www.instagram.com/reel/..." value="${esc(draft.url)}"></div>
+      <div class="field"><label for="f-lnote">What should Claude look at? (optional)</label><textarea id="f-lnote" maxlength="600" placeholder="e.g. What is worth stealing from this?">${esc(draft.lnote)}</textarea></div>
+    `}
+    <div class="sheet-actions"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="button" id="f-save">${sh.tab === "task" ? "Add to today" : "Send to Claude"}</button></div>
+  </div>`;
+}
+async function saveSheet() {
+  const sh = state.sheet; if (!sh || !db) return;
+  if (!state.canWrite) { toast("Only the owner can add to this board."); return; }
+  const btn = $("f-save"); btn.disabled = true;
+  try {
+    if (sh.tab === "task") {
+      const title = $("f-title").value.trim(); if (!title) { toast("Give the task a name first."); btn.disabled = false; return; }
+      const iso = parisToday(); const day = state.days.get(iso);
+      const tasks = (day?.tasks || []).map(t => ({ ...t }));
+      const order = 1 + Math.max(0, ...tasks.filter(t => t.area === sh.area).map(t => t.order ?? 0));
+      tasks.push({ id: "m" + Date.now().toString(36), area: sh.area, order, status: "todo", title, detail: $("f-note").value.trim(), from: "phone", addedAt: new Date().toISOString() });
+      if (day) await db.doc("days/" + iso).update({ tasks }); else await db.doc("days/" + iso).set({ date: iso, headline: "", tasks });
+      state.current = iso; toast("Added to today");
+    } else {
+      const url = $("f-url").value.trim(); if (!safeUrl(url)) { toast("Paste a full link starting with https://"); btn.disabled = false; return; }
+      await db.collection("inbox").add({ url, note: $("f-lnote").value.trim(), status: "new", createdAt: new Date().toISOString() });
+      toast("Sent. Claude looks at it next kickoff.");
+    }
+    state.sheet = null; drawSheet();
+  } catch (e) { btn.disabled = false; toast(e?.code === "invalid_argument" ? "Only the owner can add to this board." : "Couldn't save. Try again in a moment."); }
+}
+
+/* confetti */
+const fx = $("fx"), ctx = fx.getContext("2d"); let parts = [], raf = 0;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function burst(x, y, colors, n) {
+  if (reduce) return; fx.width = innerWidth * devicePixelRatio; fx.height = innerHeight * devicePixelRatio;
+  for (let k = 0; k < n; k++) { const a = Math.random() * Math.PI * 2, v = 3 + Math.random() * 7; parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 5, r: 3 + Math.random() * 4, c: colors[k % colors.length], life: 70 + Math.random() * 40, rot: Math.random() * 6 }); }
+  if (!raf) raf = requestAnimationFrame(tick);
+}
+function tick() {
+  const d = devicePixelRatio; ctx.clearRect(0, 0, fx.width, fx.height); parts = parts.filter(p => p.life > 0);
+  for (const p of parts) { p.vy += 0.28; p.vx *= 0.985; p.x += p.vx; p.y += p.vy; p.life--; p.rot += 0.2; ctx.save(); ctx.translate(p.x * d, p.y * d); ctx.rotate(p.rot); ctx.globalAlpha = Math.min(1, p.life / 30); ctx.fillStyle = p.c; ctx.fillRect(-p.r * d, -p.r * d * 0.5, p.r * 2 * d, p.r * d); ctx.restore(); }
+  raf = parts.length ? requestAnimationFrame(tick) : 0;
+}
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2400); }
+
+/* drag to reorder (within a lane, open tasks only) */
+let drag = null;
+document.addEventListener("pointerdown", (ev) => {
+  const grip = ev.target.closest("[data-grip]"); if (!grip || !state.canWrite) return;
+  const li = grip.closest("li.task"); if (!li) return;
+  ev.preventDefault();
+  drag = { li, ul: li.parentElement, id: ev.pointerId };
+  li.classList.add("dragging"); grip.setPointerCapture(ev.pointerId);
+});
+document.addEventListener("pointermove", (ev) => {
+  if (!drag || ev.pointerId !== drag.id) return;
+  const others = [...drag.ul.children].filter(x => x !== drag.li);
+  const before = others.find(x => { const r = x.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2; });
+  if (before) { if (drag.li.nextElementSibling !== before) drag.ul.insertBefore(drag.li, before); }
+  else if (drag.ul.lastElementChild !== drag.li) drag.ul.appendChild(drag.li);
+});
+async function endDrag(ev) {
+  if (!drag || ev.pointerId !== drag.id) return;
+  const { li, ul } = drag; li.classList.remove("dragging");
+  const ids = [...ul.children].map(x => x.dataset.task);
+  drag = null;
+  const iso = state.current, day = state.days.get(iso); if (!day) { render(); return; }
+  const tasks = day.tasks.map(t => ({ ...t }));
+  const changed = ids.some((id, i) => (tasks.find(t => t.id === id)?.order ?? 0) !== i + 1);
+  if (!changed) { render(); return; }
+  ids.forEach((id, i) => { const t = tasks.find(x => x.id === id); if (t) t.order = i + 1; });
+  if (!(await saveTasks(iso, tasks))) render();
+}
+document.addEventListener("pointerup", endDrag);
+document.addEventListener("pointercancel", endDrag);
+
+/* live Google Calendar (read-only, via the viewer's connector) */
+const CAL_SERVER = "Google Calendar";
+
+const liveCal = { date: null, events: null, note: "" };
+let mcpNs = null, calUnsub = null;
+const hhmm = (iso) => new Intl.DateTimeFormat("en-GB", { timeZone: TZ(), hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso));
+function cleanTitle(s) { return String(s || "Busy").trim(); }
+function watchCalendar() {
+  if (!mcpNs || !CONFIG.calendar) return;
+  const iso = state.current || parisToday();
+  if (liveCal.date === iso && calUnsub) return;
+  if (calUnsub) calUnsub();
+  liveCal.date = iso; liveCal.events = null; liveCal.note = "";
+  const next = new Date(iso + "T12:00:00Z"); next.setUTCDate(next.getUTCDate() + 1);
+  const input = { startTime: iso + "T00:00:00", endTime: next.toISOString().slice(0, 10) + "T00:00:00", orderBy: "startTime" };
+  calUnsub = mcpNs.watchTool(CAL_SERVER, "list_events", input, (e) => {
+    if (e.type === "data") {
+      const p = e.result?.payload; const evs = Array.isArray(p?.events) ? p.events : null;
+      if (!evs) return;
+      liveCal.note = "";
+      liveCal.events = evs.filter(x => x.status !== "cancelled").map(x => {
+        const allDay = !x.start?.dateTime;
+        return { t: allDay ? "All day" : hhmm(x.start.dateTime), end: allDay ? "" : hhmm(x.end?.dateTime || x.start.dateTime), title: cleanTitle(x.summary), area: (CONFIG.calendarColors || {})[x.colorId] || "" };
+      });
+    } else {
+      const c = e.error?.code;
+      if (["needs_reauth", "server_not_connected", "not_in_manifest", "blocked_by_policy", "approval_required", "selection_required"].includes(c)) {
+        liveCal.events = null; liveCal.ask = c === "approval_required" || c === "not_in_manifest"; liveCal.input = input;
+        liveCal.note = c === "needs_reauth" ? "Reconnect Google Calendar in claude.ai Settings → Connectors" : c === "approval_required" ? "Allow Google Calendar for this board to see live meetings" : "Live calendar off";
+      }
+    }
+    render();
+  }, { refetchInterval: 5 * 60 * 1000 });
+}
+
+/* data */
+let db = null, saving = false, commentsNs = null;
+async function saveTasks(iso, tasks) {
+  if (!db || saving) return false; saving = true;
+  try { await db.doc("days/" + iso).update({ tasks }); return true; }
+  catch (e) { if (e?.code === "invalid_argument") { state.canWrite = false; render(); toast("Only the owner can tick tasks here."); } else toast("Couldn't save that. Try again in a moment."); return false; }
+  finally { saving = false; }
+}
+
+document.addEventListener("click", async (ev) => {
+  const el = (sel) => ev.target.closest(sel);
+  if (el("#recap-open")) { recapOpen = true; drawRecap(); return; }
+  if (el("[data-recap-close]")) { recapOpen = false; drawRecap(); $("recap-open")?.focus(); return; }
+  if (el("[data-recap-copy]")) { copyRecap(); return; }
+  if (el("#fab")) { openSheet(); return; }
+  if (el("#cal-allow") && mcpNs && liveCal.input) {
+    try { await mcpNs.callTool(CAL_SERVER, "list_events", liveCal.input); liveCal.ask = false; liveCal.note = ""; if (calUnsub) calUnsub(); calUnsub = null; liveCal.date = null; watchCalendar(); }
+    catch (e) { toast(e?.code === "needs_reauth" ? "Reconnect Google Calendar in claude.ai Settings" : "Calendar not allowed. Tap again any time."); }
+    return;
+  }
+  if (el("[data-close]")) { state.sheet = null; drawSheet(); return; }
+  if (el("[data-tab]")) { state.sheet.tab = el("[data-tab]").dataset.tab; drawSheet(); return; }
+  if (el("[data-pick]")) { state.sheet.area = el("[data-pick]").dataset.pick; drawSheet(); return; }
+  if (el("#f-save")) { saveSheet(); return; }
+  const nav = el("#prev, #next, #today");
+  if (nav) { const ds = sortedDates(), iso = state.current; if (nav.id === "today") state.current = parisToday(); if (nav.id === "prev") state.current = ds.filter(x => x < iso).pop() || iso; if (nav.id === "next") state.current = ds.find(x => x > iso) || iso; watchCalendar(); render(); return; }
+  const chip = el(".chip"); if (chip) { state.activeLane = chip.dataset.lane; document.getElementById("lane-" + chip.dataset.lane)?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", inline: "center", block: "nearest" }); document.querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", c === chip)); return; }
+  const open = el("[data-open]"); if (open) { const id = open.dataset.open; state.expanded.has(id) ? state.expanded.delete(id) : state.expanded.add(id); render(); return; }
+  const fold = el("[data-fold]"); if (fold) { const k = fold.dataset.fold; state.showDone.has(k) ? state.showDone.delete(k) : state.showDone.add(k); render(); return; }
+  const skip = el("[data-skip]"); if (skip) { state.skip.add(skip.dataset.skip); const d = state.days.get(state.current); if (d && !upNext(d.tasks || [])) state.skip.clear(); render(); return; }
+  const ask = el("[data-ask]"); if (ask && commentsNs) { try { const r = await commentsNs.openComposer({ element: ask.closest("li.task") }); if (!r.opened) toast("Tap the page once, then try again."); } catch { toast("Comments aren't available here."); } return; }
+  const unlink = el("[data-unlink]"); if (unlink && db) { try { await db.doc("inbox/" + unlink.dataset.unlink).delete(); } catch { toast("Couldn't remove it."); } return; }
+  const iso = state.current, day = state.days.get(iso); if (!day) return;
+  const mv = el("[data-move]");
+  if (mv) {
+    const idx = Number(mv.dataset.move), dir = Number(mv.dataset.dir);
+    const tasks = day.tasks.map(t => ({ ...t })); const me = tasks[idx];
+    const lane = tasks.filter(t => laneOf(t) === laneOf(me) && t.status !== "done").sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const pos = lane.indexOf(me), to = pos + dir;
+    if (to < 0 || to >= lane.length) return;
+    [lane[pos], lane[to]] = [lane[to], lane[pos]];
+    lane.forEach((t, i) => { t.order = i + 1; });
+    await saveTasks(iso, tasks); return;
+  }
+  const del = el("[data-del]"); if (del) { const tasks = day.tasks.filter((_, i) => i !== Number(del.dataset.del)); if (await saveTasks(iso, tasks)) toast("Deleted"); return; }
+  const chk = el("[data-i]"), doing = el("[data-doing]"); if (!chk && !doing) return;
+  const idx = Number(chk ? chk.dataset.i : doing.dataset.doing);
+  const tasks = day.tasks.map(t => ({ ...t })); const t = tasks[idx]; if (!t) return;
+  if (chk) { t.status = t.status === "done" ? "todo" : "done"; if (t.status === "done") t.doneAt = new Date().toISOString(); else delete t.doneAt; }
+  else t.status = t.status === "doing" ? "todo" : "doing";
+  const before = dayStats(day).pct;
+  if (await saveTasks(iso, tasks) && chk && t.status === "done") {
+    const r = chk.getBoundingClientRect(); const after = dayStats({ tasks }).pct;
+    burst(r.left + r.width / 2, r.top + r.height / 2, COLORS[laneOf(t)], 24);
+    if (after === 100 && before < 100) { setTimeout(() => AREAS.forEach((a, i) => burst(innerWidth * (0.2 + 0.3 * i), innerHeight * 0.35, COLORS[a.key], 60)), 250); toast("Day cleared. Legend."); }
+    else toast(`${after}% of the day done`);
+  }
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && recapOpen) { recapOpen = false; drawRecap(); return; } if (e.key === "Escape" && state.sheet) { state.sheet = null; drawSheet(); } if (e.key === "Enter" && state.sheet && e.target.tagName === "INPUT") saveSheet(); });
+addEventListener("resize", () => { clearTimeout(render._r); render._r = setTimeout(render, 150); });
+
+applyConfig(DEFAULT_CONFIG);
+
+/* Local mode (no artifact runtime): Claude writes data.js next to this file; the page re-reads it every 20 s. Read-only here. */
+function loadLocal() {
+  const tag = document.createElement("script"); tag.src = "data.js?" + Date.now();
+  tag.onload = () => {
+    const D = window.BOARD_DATA || {}; applyConfig(D.config);
+    state.days = new Map(Object.entries(D.days || {})); state.links = Array.isArray(D.inbox) ? D.inbox : [];
+    state.loaded = true; state.current = state.current || parisToday(); render(); tag.remove();
+  };
+  tag.onerror = () => { state.loaded = true; render(); $("headline").hidden = false; $("headline").textContent = "No data.js yet. Ask Claude to set up your board."; tag.remove(); };
+  document.head.appendChild(tag);
+}
+
+(async function start() {
+  state.current = parisToday(); render();
+  const claude = window.claude;
+  if (!claude || !claude.use) { $("fab").hidden = true; loadLocal(); setInterval(loadLocal, 20000); return; }
+  const [dbNs, user, cm, mc] = await Promise.all([claude.use("db"), claude.use("user"), claude.use("comments"), claude.use("mcp")]);
+  db = dbNs; commentsNs = cm; mcpNs = mc;
+  if (!db) { state.loaded = true; render(); $("headline").hidden = false; $("headline").textContent = "Sign in to see the board."; return; }
+  try { state.canWrite = user ? !!(await user.isOwner()) : false; } catch { state.canWrite = false; }
+  $("fab").hidden = !state.canWrite;
+  const timer = setTimeout(() => { if (!state.loaded) { state.loaded = true; render(); $("headline").textContent = "Can't reach the board yet. It fills in when the connection is back."; } }, 10000);
+  db.collection("config").onSnapshot((snap) => {
+    const doc = snap.docs.find(d => d.id === "board"); applyConfig(doc ? doc.data() : null);
+    if (!state.cfgSeen) { state.cfgSeen = true; state.current = parisToday(); }
+    watchCalendar(); render();
+  }, () => {});
+  db.collection("days").onSnapshot((snap) => {
+    state.days = new Map(snap.docs.map(d => [d.id, d.data()]));
+    if (!snap.metadata.fromCache) { clearTimeout(timer); state.loaded = true; }
+    render();
+  }, () => { clearTimeout(timer); state.loaded = true; render(); $("headline").textContent = "The board stopped syncing. Reload to reconnect."; });
+  db.collection("inbox").orderBy("createdAt", "desc").limit(40).onSnapshot((snap) => {
+    state.links = snap.docs.map(d => ({ id: d.id, ...d.data() })); renderLinks();
+  }, () => {});
+})();
+</script>
+
+
+
+</body></html>
