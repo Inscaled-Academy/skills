@@ -24,7 +24,7 @@ See `onboarding.md` for every field. The page re-styles itself as soon as this c
       "title": "Finish the proposal for the new client",
       "detail": "Pricing page + timeline. Send before 5pm.",
       "tag": "Big focus",       // optional short pill
-      "carried": true,          // optional, came over from yesterday
+      "carried": true,          // optional, came over from an earlier day (the hosted page adds these itself)
       "from": "phone",          // optional, added by the user on the board
       "startedAt": "2026-01-15T09:10:00Z",
       "doneAt": "2026-01-15T11:40:00Z",

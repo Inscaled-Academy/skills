@@ -634,6 +634,29 @@ async function saveTasks(iso, tasks) {
   finally { saving = false; }
 }
 
+/* Auto carry-over: every unfinished task from earlier days lands on today, once, so nothing depends on the kickoff step. */
+let carrying = false;
+async function carryOver() {
+  if (!db || carrying) return;
+  const today = parisToday(); const mine = state.days.get(today);
+  const have = new Set((mine?.tasks || []).map(t => t.id));
+  const doneIds = new Set(), doneTitles = new Set();
+  for (const [d, day] of state.days) if (d <= today) for (const t of day.tasks || []) if (t.status === "done") { doneIds.add(t.id); doneTitles.add(String(t.title).toLowerCase()); }
+  const open = new Map();
+  for (const d of sortedDates().filter(x => x < today)) for (const t of state.days.get(d).tasks || []) if (t.status !== "done") open.set(t.id, t);
+  const lastOrder = {}; for (const t of mine?.tasks || []) lastOrder[laneOf(t)] = Math.max(lastOrder[laneOf(t)] || 0, t.order || 0);
+  const add = [...open.values()].filter(t => !have.has(t.id) && !doneIds.has(t.id) && !doneTitles.has(String(t.title).toLowerCase()))
+    .map(t => { const n = { ...t, status: "todo", carried: true, order: (lastOrder[laneOf(t)] = (lastOrder[laneOf(t)] || 0) + 1) }; delete n.doneAt; return n; });
+  if (!add.length) return;
+  carrying = true;
+  try {
+    const tasks = [...(mine?.tasks || []), ...add];
+    if (mine) await db.doc("days/" + today).update({ tasks }); else await db.doc("days/" + today).set({ date: today, headline: "", tasks });
+    toast(`Carried over ${add.length} unfinished task${add.length === 1 ? "" : "s"}`);
+  } catch { /* retried on the next snapshot */ }
+  finally { carrying = false; }
+}
+
 document.addEventListener("click", async (ev) => {
   const el = (sel) => ev.target.closest(sel);
   if (el("#recap-open")) { recapOpen = true; drawRecap(); return; }
@@ -717,7 +740,7 @@ function loadLocal() {
   }, () => {});
   db.collection("days").onSnapshot((snap) => {
     state.days = new Map(snap.docs.map(d => [d.id, d.data()]));
-    if (!snap.metadata.fromCache) { clearTimeout(timer); state.loaded = true; }
+    if (!snap.metadata.fromCache) { clearTimeout(timer); state.loaded = true; if (state.canWrite) carryOver(); }
     render();
   }, () => { clearTimeout(timer); state.loaded = true; render(); $("headline").textContent = "The board stopped syncing. Reload to reconnect."; });
   db.collection("inbox").orderBy("createdAt", "desc").limit(40).onSnapshot((snap) => {

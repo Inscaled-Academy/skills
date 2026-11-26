@@ -65,7 +65,7 @@ Run today's kickoff with them (as in Daily use below), mark one task as doing, t
 ## Daily use (every chat, after setup)
 
 The rules block from Step 4 carries these. Short version:
-1. **Morning kickoff** (when they open the day or say "kickoff"): carry over yesterday's unfinished tasks (`carried: true`), add what they dump, pull today's calendar, read new inbox links, then recommend an order: `order` inside each lane, and `rank: 1` on the single most important task (it becomes the "Up next" card). Money and things that unblock other people go first.
+1. **Morning kickoff** (when they open the day or say "kickoff"): the hosted board already carries every unfinished task from earlier days onto today by itself when the owner opens it (`carried: true`), so check it happened and do it yourself only on the local board or if it is missing; then add what they dump, pull today's calendar, read new inbox links, then recommend an order: `order` inside each lane, and `rank: 1` on the single most important task (it becomes the "Up next" card). Money and things that unblock other people go first.
 2. **Starting any task:** find the matching task on today's board by meaning, not exact title; if none matches, add it to the right lane. Set `status: "doing"` and `startedAt`.
 3. **Finishing:** set `status: "done"`, `doneAt`, and a `win`: one short first-person line they could say out loud ("Sent the proposal to the new client"). No jargon, no file paths.
 4. **New work mid-session:** add it to today's board right away instead of waiting for the end of the day.
